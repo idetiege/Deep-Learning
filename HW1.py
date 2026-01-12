@@ -21,6 +21,40 @@ class VanillaNetwork(nn.Module):
         return self.network(x)
 
 
+def load_data(batch_size):
+
+    x_list = []
+    y_list = []
+
+    with open("auto-mpg.data", 'r') as f:
+        for line in f:
+            parts = line.split()
+            if parts[3] == "?":
+                continue
+
+            vals = list(map(float, parts[:8]))
+            mpg = vals[0]
+            features = vals[1:8]
+
+            x_list.append(features)
+            y_list.append(mpg)
+
+            X = torch.tensor(x_list, dtype=torch.float32)
+            y = torch.tensor(y_list, dtype=torch.float32).reshape(-1, 1)
+
+            dataset = TensorDataset(X, y)
+
+            n_train = int(0.8 * len(dataset))
+            n_test = len(dataset) - n_train
+
+            train_ds, test_ds = torch.utils.data.random_split(dataset, [n_train, n_test])
+
+            train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
+            test_dl = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
+
+            return train_dl, test_dl
+
+
 def train(dataloader, model, loss_fn, optimizer):
 
     model.train()
@@ -64,24 +98,6 @@ def test(dataloader, model, loss_fn):
     print(f"Test loss: {test_loss:>8f} \n")
 
     return test_loss
-
-
-def load_data(batch_size):
-
-    data = np.loadtxt("2-housing.txt")
-
-    features = torch.tensor(data[:, :-1], dtype = torch.float32)
-    targets = torch.tensor(data[:, -1].reshape(-1, 1), dtype = torch.float32)
-
-    dataset = TensorDataset(features, targets)
-
-    train_ds, test_ds = random_split(dataset, [0.8, 0.2])
-
-    train_dataloader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
-    test_dataloader = DataLoader(test_ds, batch_size=batch_size)
-
-    return train_dataloader, test_dataloader
-
 
 
 if __name__ == "__main__":
