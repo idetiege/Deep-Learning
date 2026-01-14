@@ -10,13 +10,11 @@ class VanillaNetwork(nn.Module):
         super().__init__()
 
         self.network = nn.Sequential(
-                nn.Linear(7, 16),
+                nn.Linear(9, 32),
                 nn.ReLU(),
-                nn.Linear(16, 8),
+                nn.Linear(32, 16),
                 nn.ReLU(),
-                nn.Linear(8, 4),
-                nn.ReLU(),
-                nn.Linear(4, 1)
+                nn.Linear(16, 1),
             )
         
     def forward(self, x):
@@ -35,7 +33,14 @@ def load_data(batch_size):
 
             vals = list(map(float, parts[:8]))
             mpg = vals[0]
-            features = vals[1:8]
+
+            cyl, disp, hp, wt, acc, year, origin = vals[1:8]
+
+            o1 = 1.0 if origin == 1 else 0.0
+            o2 = 1.0 if origin == 2 else 0.0
+            o3 = 1.0 if origin == 3 else 0.0
+
+            features = [cyl, disp, hp, wt, acc, year, o1, o2, o3]
             x_list.append(features)
             y_list.append(mpg)
 
@@ -90,7 +95,7 @@ def train(dataloader, model, loss_fn, optimizer):
         train_loss += loss.item()
 
     train_loss /= num_batches
-    print(f"Train loss: {train_loss:>8f} \n")
+    # print(f"Train loss: {train_loss:>8f} \n")
 
     return train_loss
 
@@ -109,7 +114,7 @@ def test(dataloader, model, loss_fn):
 
     test_loss /= num_batches
 
-    print(f"Test loss: {test_loss:>8f} \n")
+    # print(f"Test loss: {test_loss:>8f} \n")
 
     return test_loss
 
@@ -122,11 +127,11 @@ if __name__ == "__main__":
     model = VanillaNetwork()
     loss_fn = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-3)
-    batch_size = 10
+    batch_size = 64
 
     train_dl, test_dl, y_mean, y_std = load_data(batch_size)
 
-    epochs = 250
+    epochs = 500
     train_losses = []
     test_losses = []
     best_test_loss = float('inf')
@@ -134,11 +139,13 @@ if __name__ == "__main__":
     best_true_mpg = None
 
     for e in range(epochs):
-        print(f"Epoch {e+1}\n-------------------------------")
+        # print(f"Epoch {e+1}\n-------------------------------")
         train_loss = train(train_dl, model, loss_fn, optimizer)
         test_loss = test(test_dl, model, loss_fn)
         rmse_mpg = (test_loss ** 0.5) * y_std.item()
-        print(f"Test RMSE (MPG): {rmse_mpg:.2f}\n")
+        # print(f"Test RMSE (MPG): {rmse_mpg:.2f}\n")
+
+
 
         train_losses.append(train_loss)
         test_losses.append(test_loss)
@@ -156,7 +163,7 @@ if __name__ == "__main__":
             best_pred_mpg = pred_mpg
             best_true_mpg = true_mpg
 
-
+    print("Best Test RMSE (MPG): {:.2f}".format((best_test_loss ** 0.5) * y_std.item()))
     plt.figure()
     plt.plot(range(epochs), train_losses, label='Train Loss')
     plt.plot(range(epochs), test_losses, label='Test Loss')
