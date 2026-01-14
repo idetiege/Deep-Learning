@@ -10,11 +10,13 @@ class VanillaNetwork(nn.Module):
         super().__init__()
 
         self.network = nn.Sequential(
-                nn.Linear(13, 24),
+                nn.Linear(7, 16),
                 nn.ReLU(),
-                nn.Linear(24, 36),
+                nn.Linear(16, 8),
                 nn.ReLU(),
-                nn.Linear(36, 1)
+                nn.Linear(8, 4),
+                nn.ReLU(),
+                nn.Linear(4, 1)
             )
         
     def forward(self, x):
@@ -23,36 +25,48 @@ class VanillaNetwork(nn.Module):
 
 def load_data(batch_size):
 
-    x_list = []
-    y_list = []
+    x_list,y_list = [], []
 
     with open("auto-mpg.data", 'r') as f:
         for line in f:
             parts = line.split()
-            if parts[3] == "?":
+            if not parts or parts[3] == "?":
                 continue
 
             vals = list(map(float, parts[:8]))
             mpg = vals[0]
             features = vals[1:8]
-
             x_list.append(features)
             y_list.append(mpg)
 
-            X = torch.tensor(x_list, dtype=torch.float32)
-            y = torch.tensor(y_list, dtype=torch.float32).reshape(-1, 1)
+    X = torch.tensor(x_list, dtype=torch.float32)
+    y = torch.tensor(y_list, dtype=torch.float32).reshape(-1, 1)
 
-            dataset = TensorDataset(X, y)
+    n = len(X)
+    n_train = int(0.8 * n)
+    n_test = n - n_train
+    g = torch.Generator().manual_seed(42)
 
-            n_train = int(0.8 * len(dataset))
-            n_test = len(dataset) - n_train
+    full_ds = TensorDataset(X, y)
+    train_ds, test_ds = random_split(full_ds, [n_train, n_test], generator=g)
 
-            train_ds, test_ds = torch.utils.data.random_split(dataset, [n_train, n_test])
+    X_train = X[train_ds.indices]
+    y_train = y[train_ds.indices]
+    X_mean = X_train.mean(dim=0, keepdim=True)
+    X_std = X_train.std(dim=0, keepdim=True) + 1e-8
+    X = (X - X_mean) / X_std
 
-            train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
-            test_dl = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
+    y_mean = y_train.mean()
+    y_std = y_train.std() + 1e-8
+    y_norm = (y - y_mean) / y_std
 
-            return train_dl, test_dl
+    full_ds = TensorDataset(X, y_norm)
+    train_ds, test_ds = random_split(full_ds, [n_train, n_test], generator=g)
+
+    train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
+    test_dl = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
+
+    return train_dl, test_dl, y_mean, y_std
 
 
 def train(dataloader, model, loss_fn, optimizer):
@@ -60,7 +74,7 @@ def train(dataloader, model, loss_fn, optimizer):
     model.train()
 
     num_batches = len(dataloader)
-    train_loss= 0
+    train_loss = 0
 
     for X, y in dataloader:
 
@@ -76,7 +90,7 @@ def train(dataloader, model, loss_fn, optimizer):
         train_loss += loss.item()
 
     train_loss /= num_batches
-    print(f"Test loss: {train_loss:>8f} \n")
+    print(f"Train loss: {train_loss:>8f} \n")
 
     return train_loss
 
@@ -86,7 +100,7 @@ def test(dataloader, model, loss_fn):
     model.eval()
 
     num_batches = len(dataloader)
-    test_loss= 0
+    test_loss = 0
 
     with torch.no_grad():
         for X, y in dataloader:
@@ -99,27 +113,49 @@ def test(dataloader, model, loss_fn):
 
     return test_loss
 
+def unnormalize(y_norm, mean, std):
+    return y_norm * std + mean
 
 if __name__ == "__main__":
 
 
     model = VanillaNetwork()
     loss_fn = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-    batch_size = 64
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-3)
+    batch_size = 10
 
-    train_dl, test_dl = load_data(batch_size)
+    train_dl, test_dl, y_mean, y_std = load_data(batch_size)
 
-    epochs = 1000
+    epochs = 250
     train_losses = []
     test_losses = []
+    best_test_loss = float('inf')
+    best_pred_mpg = None
+    best_true_mpg = None
 
     for e in range(epochs):
         print(f"Epoch {e+1}\n-------------------------------")
         train_loss = train(train_dl, model, loss_fn, optimizer)
         test_loss = test(test_dl, model, loss_fn)
+        rmse_mpg = (test_loss ** 0.5) * y_std.item()
+        print(f"Test RMSE (MPG): {rmse_mpg:.2f}\n")
+
         train_losses.append(train_loss)
         test_losses.append(test_loss)
+
+        if test_loss < best_test_loss:
+            best_test_loss = test_loss
+
+            X_batch, y_batch = next(iter(test_dl))
+            with torch.no_grad():
+                pred_norm = model(X_batch)
+
+            pred_mpg = unnormalize(pred_norm, y_mean, y_std)
+            true_mpg = unnormalize(y_batch, y_mean, y_std)
+
+            best_pred_mpg = pred_mpg
+            best_true_mpg = true_mpg
+
 
     plt.figure()
     plt.plot(range(epochs), train_losses, label='Train Loss')
