@@ -10,9 +10,10 @@ class VanillaNetwork(nn.Module):
         super().__init__()
 
         self.network = nn.Sequential(
-                nn.Linear(9, 32),
+                # 9 input units due to one-hot encoding of origin column
+                nn.Linear(9, 64),
                 nn.ReLU(),
-                nn.Linear(32, 16),
+                nn.Linear(64, 16),
                 nn.ReLU(),
                 nn.Linear(16, 1),
             )
@@ -36,6 +37,7 @@ def load_data(batch_size):
 
             cyl, disp, hp, wt, acc, year, origin = vals[1:8]
 
+            # One-hot application to origin column
             o1 = 1.0 if origin == 1 else 0.0
             o2 = 1.0 if origin == 2 else 0.0
             o3 = 1.0 if origin == 3 else 0.0
@@ -50,7 +52,7 @@ def load_data(batch_size):
     n = len(X)
     n_train = int(0.8 * n)
     n_test = n - n_train
-    g = torch.Generator().manual_seed(42)
+    g = torch.Generator().manual_seed(24)
 
     full_ds = TensorDataset(X, y)
     train_ds, test_ds = random_split(full_ds, [n_train, n_test], generator=g)
@@ -123,15 +125,14 @@ def unnormalize(y_norm, mean, std):
 
 if __name__ == "__main__":
 
-
     model = VanillaNetwork()
-    loss_fn = nn.MSELoss()
+    loss_fn = nn.L1Loss()
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-3)
     batch_size = 64
 
     train_dl, test_dl, y_mean, y_std = load_data(batch_size)
 
-    epochs = 500
+    epochs = 200
     train_losses = []
     test_losses = []
     best_test_loss = float('inf')
@@ -142,10 +143,8 @@ if __name__ == "__main__":
         # print(f"Epoch {e+1}\n-------------------------------")
         train_loss = train(train_dl, model, loss_fn, optimizer)
         test_loss = test(test_dl, model, loss_fn)
-        rmse_mpg = (test_loss ** 0.5) * y_std.item()
-        # print(f"Test RMSE (MPG): {rmse_mpg:.2f}\n")
-
-
+        mae_mpg = test_loss * y_std.item()
+        print(f"Test MAE (MPG): {mae_mpg:.2f}\n")
 
         train_losses.append(train_loss)
         test_losses.append(test_loss)
@@ -163,11 +162,20 @@ if __name__ == "__main__":
             best_pred_mpg = pred_mpg
             best_true_mpg = true_mpg
 
-    print("Best Test RMSE (MPG): {:.2f}".format((best_test_loss ** 0.5) * y_std.item()))
+    print("Best Test MAE (MPG): {:.2f}".format(best_test_loss * y_std.item()))
     plt.figure()
     plt.plot(range(epochs), train_losses, label='Train Loss')
     plt.plot(range(epochs), test_losses, label='Test Loss')
     plt.xlabel('Epochs')
-    plt.ylabel('Loss')
+    plt.ylabel('MSE Loss')
     plt.legend()
+    # plt.savefig('loss_curve.png')
+
+    plt.figure()
+    plt.plot(pred_mpg, true_mpg, 'o')
+    plt.xlabel('Predicted MPG')
+    plt.ylabel('True MPG')
+    plt.plot([min(pred_mpg.min(), true_mpg.min()), max(pred_mpg.max(), true_mpg.max())], 
+             [min(pred_mpg.min(), true_mpg.min()), max(pred_mpg.max(), true_mpg.max())], 'r--')  # Diagonal line
+    # plt.savefig('predicted_vs_true_mpg.png')
     plt.show()
