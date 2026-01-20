@@ -4,10 +4,13 @@ import matplotlib.pyplot as plt
 
 # -------- activation functions -------
 def relu(z):
-    # TODO
+    return np.maximum(0, z)
 
 def relu_back(xbar, z):
-    # TODO
+    if z > 0:
+        return 1
+    else:
+        return 0
 
 identity = lambda z: z
 
@@ -17,7 +20,8 @@ identity_back = lambda xbar, z: xbar
 
 # ---------- initialization -----------
 def initialization(nin, nout):
-   # TODO
+    W = np.random.normal(0, 2 / (nin + nout), (nout, nin))
+    b = np.zeros((nout, 1))
     return W, b
 # -------------------------------------
 
