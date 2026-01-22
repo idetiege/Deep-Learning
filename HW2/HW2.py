@@ -7,10 +7,7 @@ def relu(z):
     return np.maximum(0, z)
 
 def relu_back(xbar, z):
-    if z > 0:
-        return 1
-    else:
-        return 0
+    return xbar * (z > 0)
 
 identity = lambda z: z
 
@@ -28,10 +25,10 @@ def initialization(nin, nout):
 
 # -------- loss functions -----------
 def mse(yhat, y):
-    # TODO
+    return np.sum((y - yhat)**2) / y.shape[1]
 
 def mse_back(yhat, y):
-    # TODO
+    return 2 * (yhat - y) / y.shape[1]
 # -----------------------------------
 
 
@@ -39,7 +36,10 @@ def mse_back(yhat, y):
 class Layer:
 
     def __init__(self, nin, nout, activation=identity):
-        # TODO: initialize and setup variables
+        W, b = initialization(nin, nout)
+        self.W = W
+        self.b = b
+        self.activation = activation
 
         if activation == relu:
             self.activation_back = relu_back
@@ -47,15 +47,16 @@ class Layer:
             self.activation_back = identity_back
 
         # initialize cache
-        # TODO
+        self.cache = {}
 
     def forward(self, X, train=True):
-        # TODO
+        Z = self.W @ X + self.b
+        Xnew = self.activation(Z)
 
         # save cache
         if train:
-            # TODO: save cache
-
+            self.cache['X'] = X
+            self.cache['Z'] = Z
         return Xnew
 
     def backward(self, Xnewbar):
@@ -82,18 +83,22 @@ class Network:
         return L, yhat
 
     def backward(self):
+        X = self.cache['X']
+        y = self.cache['y']
+        ns = X.shape[1]
 
-        # TODO
+        xbar = 
 
 
 
 class GradientDescent:
 
     def __init__(self, alpha):
-        # TODO
+
 
     def step(self, network):
-        # TODO
+        w_next = w - alpha * w_bar
+        b_next = b - alpha * b_bar
 
 
 if __name__ == '__main__':
@@ -158,16 +163,17 @@ if __name__ == '__main__':
 
     # ------------------------------------------------------------
 
-    l1 = Layer(7, ?, relu)
-    # TODO
+    l1 = Layer(7, 32, relu)
+    l2 = Layer(32, 16, relu)
+    l3 = Layer(16, 1, identity)
     layers = [l1, l2, l3]
     network = Network(layers, mse)
-    alpha = ?
+    alpha = 0.01
     optimizer = GradientDescent(alpha)
 
     train_losses = []
     test_losses = []
-    epochs = ?
+    epochs = 250
     for i in range(epochs):
         # TODO: run train set, backprop, step
 
