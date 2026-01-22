@@ -97,8 +97,8 @@ class GradientDescent:
 
 
     def step(self, network):
-        w_next = w - alpha * w_bar
-        b_next = b - alpha * b_bar
+        w_next = self.w - alpha * self.w_bar
+        b_next = self.b - alpha * b_bar
 
 
 if __name__ == '__main__':
@@ -176,6 +176,11 @@ if __name__ == '__main__':
     epochs = 250
     for i in range(epochs):
         # TODO: run train set, backprop, step
+        # Run training set
+        
+        # Backpropagation
+
+        # Step
 
         # TODO: run test set
 
