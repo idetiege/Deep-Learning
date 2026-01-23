@@ -60,45 +60,65 @@ class Layer:
         return Xnew
 
     def backward(self, Xnewbar):
-        # TODO
+        X = self.cache['X'] # (nin, ns)
+        Z = self.cache['Z'] # (nout, ns)
+        ns = X.shape[1]
+
+        Zbar = self.activation_back(Xnewbar, Z)  # (nout, ns)
+        
+        self.Wbar = (Zbar @ X.T) # (nout, nin)
+        self.bbar = np.sum(Zbar, axis=1, keepdims=True) # (nout, 1)
+
+        Xbar = self.W.T @ Zbar  # (nin, ns)
         return Xbar
 
 
 class Network:
 
     def __init__(self, layers, loss):
-        # TODO: initialization
+        self.layers = layers
+        self.loss = loss
+        self.cache = {}
 
         if loss == mse:
             self.loss_back = mse_back
 
     def forward(self, X, y, train=True):
 
-        # TODO
+        A = X
+        for layer in self.layers:
+            A = layer.forward(A, train=train)
 
-        # save cache
+        yhat = A
+        L = self.loss(yhat, y)
+
         if train:
-            # TODO
+            self.cache['X'] = X
+            self.cache['y'] = y
+            self.cache['yhat'] = yhat
 
         return L, yhat
 
     def backward(self):
-        X = self.cache['X']
         y = self.cache['y']
-        ns = X.shape[1]
+        yhat = self.cache['yhat']
 
-        xbar = 
+        yhatbar = self.loss_back(yhat, y)
 
+        Abar = yhatbar
+        for layer in reversed(self.layers):
+            Abar = layer.backward(Abar)
 
 
 class GradientDescent:
 
     def __init__(self, alpha):
-
+        self.alpha = alpha
 
     def step(self, network):
-        w_next = self.w - alpha * self.w_bar
-        b_next = self.b - alpha * b_bar
+        for layer in network.layers:
+            layer.W -= self.alpha * layer.Wbar
+            layer.b -= self.alpha * layer.bbar
 
 
 if __name__ == '__main__':
@@ -164,25 +184,30 @@ if __name__ == '__main__':
     # ------------------------------------------------------------
 
     l1 = Layer(7, 32, relu)
-    l2 = Layer(32, 16, relu)
-    l3 = Layer(16, 1, identity)
+    l2 = Layer(32, 20, relu)
+    l3 = Layer(20, 1, identity)
     layers = [l1, l2, l3]
     network = Network(layers, mse)
-    alpha = 0.01
+    alpha = 0.1
     optimizer = GradientDescent(alpha)
 
     train_losses = []
     test_losses = []
-    epochs = 250
+    epochs = 800
     for i in range(epochs):
-        # TODO: run train set, backprop, step
-        # Run training set
-        
-        # Backpropagation
+        # --- train ---
+        Ltrain, _ = network.forward(Xtrain, ytrain, train=True)
+        network.backward()
+        optimizer.step(network)
 
-        # Step
+        # --- test ---
+        Ltest, _ = network.forward(Xtest, ytest, train=False)
 
-        # TODO: run test set
+        train_losses.append(Ltrain)
+        test_losses.append(Ltest)
+
+        if (i+1) % 25 == 0:
+            print(f"epoch {i+1}/{epochs}  train={Ltrain:.4f}  test={Ltest:.4f}")
 
 
     # --- inference ----
@@ -198,13 +223,14 @@ if __name__ == '__main__':
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
     plt.title('Training and Testing Losses')
+    plt.savefig('loss_plot.png')
     plt.legend()
 
 
     plt.figure()
     plt.plot(ytest.T, yhat.T, "o")
     plt.plot([10, 45], [10, 45], "--")
-
+    plt.savefig('prediction_plot.png')
     print("avg error (mpg) =", np.mean(np.abs(yhat - ytest)))
 
     plt.show()
