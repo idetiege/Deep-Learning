@@ -52,6 +52,43 @@ def boundary(model, tbc): # tbc size: (nbc, 1)
     # Compute residuals
     return x1, x2
 
+def datapoints():
+    tdata = torch.zeros(1, 1, requires_grad=True)
+
+    return tdata
+
+def train(tbc, tcoll, params, model, lossfn, optimizer):
+
+    model.train()
+
+    # Zero gradients
+    optimizer.zero_grad()
+
+    # Compute residuals
+    bc1, bc2 = boundary(model, tbc)
+    lossbc1 = torch.mean(bc1**2)
+    lossbc2 = torch.mean(bc2**2)
+
+    rcol = residual(model, tcoll, params)
+    loss_col = torch.mean(rcol**2)
+
+    lambda1 = 1e-4 
+
+    # Compute loss
+    loss_r = lossfn(r, torch.zeros_like(r))
+    loss_b1 = lossfn(x1, torch.zeros_like(x1))
+    loss_b2 = lossfn(x2, torch.zeros_like(x2))
+
+    loss = loss_r + loss_b1 + loss_b2
+
+    # Backpropagation
+    loss.backward()
+
+    # Update weights
+    optimizer.step()
+
+    return loss.item()
+
 if __name__ == "__main__":
 
     m = 1; mu = 4; k = 400
