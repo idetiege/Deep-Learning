@@ -160,7 +160,7 @@ def plot_pinn_map(model, Xbc=None, u_exact_fn=None,
 
     # ===== top heatmap =====
     ax0 = fig.add_subplot(gs[0, :])
-    im = ax0.pcolormesh(T, X, u_pred, shading="auto", cmap="coolwarm", vmin =-1, vmax = 1)
+    im = ax0.pcolormesh(T, X, u_pred, shading="auto", cmap="rainbow", vmin =-1, vmax = 1)
     cbar = fig.colorbar(im, ax=ax0, pad=0.02)
     ax0.set_title(r"$u(t,x)$")
     ax0.set_xlabel(r"$t$")
@@ -207,7 +207,7 @@ if __name__ == "__main__":
 
     # Initialize model, optimizer, and training parameters
     epochs = 1000
-    n_coll = 1000
+    n_coll = 10000
     model = PINN(hlayers = 8, width = 30)
     optimizer = torch.optim.Adam(model.parameters(), lr = 1e-3)
 
