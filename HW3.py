@@ -87,7 +87,7 @@ def loss(func_residuals, boundary_residuals, ubc):
     # Calculate MSE for boundary conditions and physics residuals
     MSEu = torch.mean((boundary_residuals - ubc)**2)
     MSEf = torch.mean((func_residuals)**2)
-    Loss = MSEu + MSEf
+    Loss = MSEu + .1*MSEf
 
     return Loss
 
@@ -207,7 +207,7 @@ if __name__ == "__main__":
 
     # Initialize model, optimizer, and training parameters
     epochs = 1000
-    n_coll = 10000
+    n_coll = 1000
     model = PINN(hlayers = 8, width = 30)
     optimizer = torch.optim.Adam(model.parameters(), lr = 1e-3)
 
@@ -216,9 +216,10 @@ if __name__ == "__main__":
 
     # Plot the results
     t = range(1, epochs + 1)
-    plot_pinn_map(model)
+    # plot_pinn_map(model)
 
     plt.plot(t, x)
+    plt.loglog()
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
     plt.title('Training Loss over Epochs')
