@@ -20,6 +20,8 @@ class PINN(nn.Module):
 
         self.network = nn.Sequential(*layers)
         
+        # Define learned parameters as members of the class
+        # Lambda 2 needs to be nagtive so the optimizer does not break the physics
         self.lambda1 = nn.Parameter(torch.tensor(0.0))
         self.lambda2 = nn.Parameter(torch.tensor(-5.0))
 
@@ -54,11 +56,12 @@ def inputs(n_coll, device):
     # Input data
     data = np.loadtxt("burgers.txt")
 
+    # Move data to tansors that can be use on the GPU
     x_data = torch.tensor(data[:, 0:1], dtype=torch.float32, device=device)
     t_data = torch.tensor(data[:, 1:2], dtype=torch.float32, device=device)
     u_data = torch.tensor(data[:, 2:3], dtype=torch.float32, device=device)
 
-
+    # Define collocation points and use Latin Hypercube samplig
     lower_bounds = [0, -1]
     upper_bounds = [1, 1]
     sampler = qmc.LatinHypercube(d=2)
@@ -110,12 +113,13 @@ def train(model, optimizer, epochs, n_coll, device):
         # Backpropagation
         loss_val.backward()
 
-        
+        # Take an optimization step
         optimizer.step()
 
         # Add the new training loss to the list for plotting
         train_loss.append(loss_val.item())
 
+        # Print the progress every 100 epochs
         if epoch % 100 == 0:
             lam1 = model.lambda1.item()
             lam2 = (-torch.exp(model.lambda2)).item()
@@ -204,13 +208,15 @@ if __name__ == "__main__":
     epochs = 2000
     n_coll = 10000
 
+    # Check for a GPU or CUDA device (way faster than CPU)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Using device:", device)
 
+    # Create a model instance
     model = PINN(hlayers = 8, width = 40).to(device)
 
+    # Define optimizer
     optimizer = torch.optim.Adam(list(model.parameters()), lr=0.001)
-
     
     # Train the model
     x = train(model, optimizer, epochs, n_coll, device)
@@ -219,12 +225,15 @@ if __name__ == "__main__":
     t = range(1, epochs + 1)
     plot_pinn_map(model, device=device)
 
+    # Print the learned parameters
     print(f'Lambda1: {model.lambda1.item()}')
     print(f'Lambda2: {(-torch.exp(model.lambda2)).item()}')
 
+    # Print distance from the provided parameter values
     print(f'Distance from true lambda1: {abs(model.lambda1.item() - 1.0)}')
     print(f'Distance from true lambda2: {abs((-torch.exp(model.lambda2)).item() - (-0.01/np.pi))}')
 
+    # Plot training loss
     plt.plot(t, x)
     plt.yscale('log')
     plt.xlabel('Epoch')
