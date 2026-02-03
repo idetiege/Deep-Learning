@@ -105,23 +105,24 @@ def train(model, optimizer, epochs, n_coll, device):
     x_bc = Xbc[:, 1:2]
 
     for _ in range(epochs):
+        
+        def closure():
+            optimizer.zero_grad()
 
-        optimizer.zero_grad()
+            # Evaluate the model
+            ubc = model(t_bc, x_bc)
 
-        # Evaluate the model
-        ubc = model(t_bc, x_bc)
+            # Calculate the residuals for the physics loss
+            f = residual(model, (t_func, x_func))
 
-        # Calculate the residuals for the physics loss
-        f = residual(model, (t_func, x_func))
+            # Calculate the total loss
+            loss_val = loss(f, ubc, Ubc)
 
-        # Calculate the total loss
-        loss_val = loss(f, ubc, Ubc)
-
-        # Backpropagation
-        loss_val.backward()
-
-        # Omtimizer steps and updates the parameters
-        optimizer.step()
+            # Backpropagation
+            loss_val.backward()
+            return loss_val
+        
+        loss_val = optimizer.step(closure)
 
         # Add the new training loss to the list for plotting
         train_loss.append(loss_val.item())
@@ -206,14 +207,20 @@ def plot_pinn_map(model, Xbc=None, u_exact_fn=None,
 if __name__ == "__main__":
 
     # Initialize model, optimizer, and training parameters
-    epochs = 2500
+    epochs = 200
     n_coll = 10000
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Using device:", device)
 
-    model = PINN(hlayers = 8, width = 30).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr = 1e-3)
+    model = PINN(hlayers = 9, width = 30).to(device)
+    optimizer = torch.optim.LBFGS(
+        model.parameters(),
+        lr=1.0,
+        max_iter=20,
+        history_size=100,
+        line_search_fn="strong_wolfe")
+
 
 
     # Train the model
@@ -224,7 +231,7 @@ if __name__ == "__main__":
     plot_pinn_map(model, device=device)
 
     plt.plot(t, x)
-    plt.loglog()
+    plt.yscale('log')
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
     plt.title('Training Loss over Epochs')
