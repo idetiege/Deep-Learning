@@ -73,8 +73,7 @@ if __name__ == "__main__":
     epochs = 200
     model = NeuODE(width=width).double()
     y0 = torch.tensor(d[1][0], dtype = torch.float64)
-    with torch.no_grad():
-        yhat = model(y0, t_train)
+
     
     lossfn = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
@@ -82,6 +81,9 @@ if __name__ == "__main__":
     for _ in range(epochs):
         loss = train(y_train, t_train, model, optimizer, lossfn)
         print(f"Loss: {loss:.4f}")
+
+        with torch.no_grad():
+            yhat = model(y0, t_train)
 
         if _ % 20 == 0:
             plt.plot(t_train, y_train[:, 0], label="Rabbits", color="lightblue")
