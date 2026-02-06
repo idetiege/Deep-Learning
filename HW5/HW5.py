@@ -177,6 +177,11 @@ if __name__ == "__main__":
             yhat = model(yk[0, :], t)  # (k,4)
 
     # plot_stage(dk, yk, yhat, stage_losses, title=f"Stage: first {k} months")
-    y_obs_real = denormalize(yk, mean_vals, std_vals)
-    y_pred_real = denormalize(yhat, mean_vals, std_vals)
-    plot_forecast(full_dates, y_obs_real, y_pred_real, split_idx = 20)
+    # Observations across ALL months
+    y_obs_real = denormalize(full_data, mean_vals, std_vals)
+
+    yhat_all = forecast_all_months(model, full_data)         # (T,4)
+    y_pred_real = denormalize(yhat_all, mean_vals, std_vals)
+
+    plot_forecast(full_dates, y_obs_real, y_pred_real, split_idx=20)
+
