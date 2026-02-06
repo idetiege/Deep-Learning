@@ -79,18 +79,28 @@ if __name__ == "__main__":
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
     for _ in range(epochs):
+        losses = []
         loss = train(y_train, t_train, model, optimizer, lossfn)
-        print(f"Loss: {loss:.4f}")
+
+        losses.append(loss)
 
         with torch.no_grad():
             yhat = model(y0, t_train)
 
-        if _ % 20 == 0:
-            plt.plot(t_train, y_train[:, 0], label="Rabbits", color="lightblue")
-            plt.plot(t_train, yhat[:, 0].detach(), label="Rabbits (Predicted)", linestyle="dashed", color="lightblue")
-            plt.xlabel("time")
-            plt.ylabel("Population")
-            plt.plot(t_train, y_train[:, 1], label="Wolves", color="orange")
-            plt.plot(t_train, yhat[:, 1].detach(), label="Wolves (Predicted)", linestyle="dashed", color="orange")
-            plt.legend()
-            plt.show()
+    print(f"Loss: {loss:.4f}")
+    
+    plt.figure()
+    plt.plot(t_train, y_train[:, 0], label="Rabbits", color="lightblue")
+    plt.plot(t_train, yhat[:, 0].detach(), label="Rabbits (Predicted)", linestyle="dashed", color="lightblue")
+    plt.xlabel("time")
+    plt.ylabel("Population")
+    plt.plot(t_train, y_train[:, 1], label="Wolves", color="orange")
+    plt.plot(t_train, yhat[:, 1].detach(), label="Wolves (Predicted)", linestyle="dashed", color="orange")
+    plt.legend()
+
+    plt.figure()
+    plt.plot(range(epochs), losses)
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+
+    plt.show()
