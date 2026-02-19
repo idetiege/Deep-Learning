@@ -15,6 +15,8 @@ class NN1(nn.Module):
         self.network = nn.Sequential(
             nn.Linear(128, 256),
             self.activation,
+            nn.Linear(256, 256),
+            self.activation,
             nn.Linear(256, 2),
         )
 
@@ -48,7 +50,9 @@ class NN2(nn.Module):
         self.network = nn.Sequential(
             nn.Linear(2, 256),
             self.activation,
-            nn.Linear(256, 128),
+            nn.Linear(256, 256),
+            self.activation,
+            nn.Linear(256, 128)
         )
 
     def forward(self, x):
