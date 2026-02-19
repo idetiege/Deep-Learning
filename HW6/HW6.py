@@ -5,10 +5,11 @@ import torch
 import torch.nn as nn
 import numpy as np
 from torchdiffeq import odeint
+from torch.utils.data import DataLoader, TensorDataset
 
-class NN1(nn.Module):
+class Encode(nn.Module):
     def __init__(self):
-        super(NN1, self).__init__()
+        super(Encode, self).__init__()
 
         self.activation = nn.ReLU()
 
@@ -24,10 +25,10 @@ class NN1(nn.Module):
         return self.network(x)
 
 class NeuODE(nn.Module):
-    def __init__(self, width, hlayers):
+    def __init__(self):
         super(NeuODE, self).__init__()
 
-        self.activation = nn.ReLU()
+        self.activation = nn.SiLU()
 
         self.network = nn.Sequential(
             nn.Linear(2, 128),
@@ -41,9 +42,9 @@ class NeuODE(nn.Module):
     def forward(self, y0, tsteps):
         return odeint(self.odefunc, y0, tsteps)
 
-class NN2(nn.Module):
+class Decode(nn.Module):
     def __init__(self):
-        super(NN2, self).__init__()
+        super(Decode, self).__init__()
 
         self.activation = nn.ReLU()
 
@@ -58,6 +59,8 @@ class NN2(nn.Module):
     def forward(self, x):
         return self.network(x)
 
+##############################
+## Data Stuff
 def generatetrajectories(ntraj, tsteps, A, trainflag):
 
     nx, nz = A.shape
@@ -113,89 +116,63 @@ def true_encoder(X, A):  # X is npts * nt * nx
     Z3 = X @ np.linalg.pinv(A).T  # pinv is nz x nx
     return np.sign(Z3) * np.abs(Z3)**(1/3)
 
-def train_stage(y_train, model, optimizer, lossfn, epochs):
-    model.train()
-    stage_losses = []
+def data(trainData, testData, batch_size):
 
-    t = torch.arange(y_train.shape[0], device=y_train.device, dtype=y_train.dtype)
+    # Normalize
+    mean_train = np.mean(trainData)
+    stddev_train = np.std(trainData)
 
+    mean_test = np.mean(trainData)
+    stdev_test = np.std(testData)
 
-    for _ in range(epochs):
-        optimizer.zero_grad()
-        yhat = model(y_train[0, :], t) # Size: (T,4)
-        loss = lossfn(yhat, y_train)
-        loss.backward()
-        optimizer.step()
-        stage_losses.append(loss.item())
+    train_norm = (trainData - mean_train) / stddev_train
+    test_norm = (testData - mean_test) / stdev_test
 
-    return stage_losses
+    trainDl = DataLoader(train_norm, batch_size, shuffle = True)
+    testDl = DataLoader(test_norm, batch_size, shuffle = True)
+    return trainDl, testDl
 
-def test(y_test, t_test, model, lossfn):
+##############################
 
-    model.eval()
-    with torch.no_grad():
-        yhat = model(y_test[0, :], t_test)
-        loss = lossfn(yhat, y_test)
+## Loss Functions
 
-    return loss.item()
+def Loss_data(loss_fn, x, encoder, decoder, ode, x_batch, t_batch):
 
-def denormalize(y_norm, mean_vals, std_vals):
-    # y_norm: torch tensor (T,4)
-    mu = torch.tensor(mean_vals.values, dtype=y_norm.dtype, device=y_norm.device)
-    sd = torch.tensor(std_vals.values, dtype=y_norm.dtype, device=y_norm.device)
-    return y_norm * sd + mu
+    z = encoder(x_batch)
+    x_recon = decoder(z)
+    lossRecon = loss_fn(x_recon, x_batch)
 
+    z0 = z[:, 0, :]
+    z_hat = ode(z0, t_batch)
+    z_hat = z_hat.permute(1, 0, 2) # nt x ntraj x nz
+
+    x_hat = decoder(z_hat)
+
+    lossPred = loss_fn(x_hat, x_batch)
+
+    return lossPred, lossRecon
+
+def Loss_phys(loss_fn, f, Xcol, x_coll, z, ode, encoder, decoder):
+    
+    dzdx = torch.zeros(Xcol.shape[0], 2, Xcol.shape[2], device=Xcol.device, dtype=Xcol.dtype)
+    dzdx[:, 0, :] = torch.autograd.grad(z[:, 0], x_coll, grad_outputs=torch.ones_like(z[:,0]), retain_graph=True,  create_graph=True)[0]
+    dzdx[:, 1, :] = torch.autograd.grad(z[:, 1], x_coll, grad_outputs=torch.ones_like(z[:,0]), retain_graph=True,  create_graph=True)[0]
+
+    dzdt = torch.bmm(dzdx, f.unsqueeze(2)).squeeze() # ncol x 2
+
+    zdot = ode.odefunc(None, z)
+
+    lossPred = loss_fn(dzdt, zdot)
+    lossColl = loss_fn(Xcol, decoder(encoder(Xcol)))
+
+    return lossPred + lossColl
 
 if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    dtype = torch.float32  # try float64 only if needed
+    dtype = torch.float64
     print("device:", device)
 
-    # Get the data
-    train_data, test_data, train_dates, test_dates, mean_vals, std_vals, full_dates, full_data = data()
-
-    train_data = train_data.to(device=device, dtype=dtype)
-    test_data  = test_data.to(device=device, dtype=dtype)
-    full_data  = full_data.to(device=device, dtype=dtype)
-
-    # Call the model, loss function, and optimizer
-    model = NeuODE(width=20, hlayers=3).to(device=device, dtype=dtype)
-    lossfn = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-
-    # Set up the stages of training
-    stages = [4, 8, 12, 16, 20]
-    epochs_per_stage = {4: 300, 8: 300, 12: 400, 16: 400, 20: 500}
-
-    all_losses = []
-
-    # Train in stages
-    for k in stages:
-        yk = train_data[:k, :]
-        dk = train_dates[:k]
-
-        stage_losses = train_stage(yk, model, optimizer, lossfn, epochs_per_stage[k])
-        all_losses.extend(stage_losses)
-
-        # predict over the same window for plotting
-        with torch.no_grad():
-            t = torch.arange(k, device=train_data.device, dtype=train_data.dtype)
-            yhat = model(yk[0, :], t)  # (k,4)
-
-    # plot_stage(dk, yk, yhat, stage_losses, title=f"Stage: first {k} months")
-    # Observations across ALL months
-    y_obs_real = denormalize(full_data, mean_vals, std_vals)
-
-    yhat_all = forecast_all_months(model, full_data)         # (T,4)
-    y_pred_real = denormalize(yhat_all, mean_vals, std_vals)
-
-    plot_forecast(full_dates, y_obs_real, y_pred_real, split_idx=20)
-
-
-
-
-if __name__ == "__main__":
 
     # discretization in time for training and test data.  These don't need to be changed.
     nt_train = 11
