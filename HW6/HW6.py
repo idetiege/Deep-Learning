@@ -67,7 +67,7 @@ def generatetrajectories(ntraj, tsteps, A, trainflag):
     nt = len(tsteps)
 
     if trainflag:
-        z1 = np.random.uniform(low=-1.5, high=0.5, size=ntraj)
+        z1 = np.random.uniform(low=-1.5, high=1.5, size=ntraj)
         z2 = np.random.uniform(low=-1, high=1, size=ntraj)
     else:
         z1 = np.random.uniform(low=-1.5, high=1.5, size=ntraj)
@@ -101,7 +101,7 @@ def getdata(ntrain, ntest, ncol, t_train, t_test):
     Xtest = generatetrajectories(ntest, t_test, A, trainflag=False)
 
     # collocation points
-    z1 = np.random.uniform(low=0.5, high=1.5, size=ncol)
+    z1 = np.random.uniform(low=-1.5, high=1.5, size=ncol)
     z2 = np.random.uniform(low=-1, high=1, size=ncol)
     Zcol = np.column_stack((z1, z2))  # ncol x nz
     hZ = np.column_stack((Zcol[:, 1], Zcol[:, 0] - Zcol[:, 0]**3))
@@ -162,12 +162,46 @@ def Loss_phys(loss_fn, encoder, ode, decoder, Xcol_t, fcol_t):
 
     return lossPred + lossColl
 
+def plot_train_test_mse(train_losses, test_losses, savepath=None):
+    """
+    Plot MSE vs epochs for:
+      - train_losses: list/1D array of total training loss per epoch
+      - test_losses:  list/1D array of test MSE per epoch
+
+    If savepath is given, saves the figure there instead of just showing it.
+    """
+    train_losses = np.asarray(train_losses, dtype=float)
+    test_losses  = np.asarray(test_losses,  dtype=float)
+
+    n_epochs = len(train_losses)
+    epochs = np.arange(1, n_epochs + 1)
+
+    plt.figure(figsize=(6,4))
+    plt.plot(epochs, train_losses, label="Train MSE (total loss)")
+    plt.plot(epochs, test_losses,  label="Test MSE", linestyle="--")
+
+    plt.xlabel("Epoch")
+    plt.ylabel("MSE")
+    plt.title("Training and Test MSE vs Epoch")
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+
+    if savepath is not None:
+        plt.savefig(savepath, dpi=200)
+    else:
+        plt.show()
+
+
 if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     dtype = torch.float64
     print("device:", device)
 
+
+    train_losses = []
+    test_losses  = []
 
     # discretization in time for training and test data.  These don't need to be changed.
     nt_train = 11
@@ -179,7 +213,7 @@ if __name__ == "__main__":
     # You will need more training pts and collocation pts eventually (testing pts can remain as is).
     ntrain = 100
     ntest = 100
-    ncol = 1000
+    ncol = 10000
     Xtrain, Xtest, Xcol, fcol, Amap = getdata(ntrain, ntest, ncol, t_train, t_test)
 
     # Xtrain is ntrain x nt_train x nx
@@ -215,39 +249,66 @@ if __name__ == "__main__":
     train_dataset = TensorDataset(Xtrain_t)
     train_loader  = DataLoader(train_dataset, batch_size=16, shuffle=True)
 
-    n_epochs = 500
-    # Weights for losses
-    w_pred, w_phys = 1, 10
+    n_epochs = 1000
+    w_pred, w_phys = 1.0, 0.1
+    n_phys_batch = 100
 
-    # Training loop
     for epoch in range(n_epochs):
         encoder.train(); decoder.train(); ode.train()
-        total_loss = 0.0
+        epoch_train_loss = 0.0
+        n_batches = 0
 
         for (x_batch,) in train_loader:
+            # data loss
             lossData = Loss_data(loss_fn, encoder, decoder, ode, x_batch, t_train_t)
-            lossPhys = Loss_phys(loss_fn, encoder, ode, decoder, Xcol_t, fcol_t)
-            loss = w_pred*lossData + w_phys*lossPhys
+
+            # random subset of collocation points
+            idx = torch.randperm(Xcol_t.size(0), device=device)[:n_phys_batch]
+            Xcol_batch = Xcol_t[idx]
+            fcol_batch = fcol_t[idx]
+
+            lossPhys = Loss_phys(loss_fn, encoder, ode, decoder, Xcol_batch, fcol_batch)
+
+            loss = w_pred * lossData + w_phys * lossPhys
 
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-            total_loss += loss.item()
+            epoch_train_loss += loss.item()
+            n_batches += 1
+
+        # ---- end of epoch: log averaged train loss ----
+        avg_train_loss = epoch_train_loss / n_batches
+        train_losses.append(avg_train_loss)
+
+        # ---- evaluate on test set ----
+        encoder.eval(); decoder.eval(); ode.eval()
+        with torch.no_grad():
+            z0_test = encoder(Xtest_t[:, 0, :])                  # (ntest, 2)
+            z_hat_test = ode(z0_test, t_test_t).permute(1, 0, 2) # (ntest, nt_test, 2)
+            Xhat_flat = decoder(z_hat_test.reshape(-1, 2))
+            Xhat_norm = Xhat_flat.reshape(Xtest_t.shape)
+            test_mse = loss_fn(Xhat_norm, Xtest_t).item()
+            test_losses.append(test_mse)
 
         if epoch % 50 == 0:
-            print(f"Epoch {epoch}, Loss: {total_loss/len(train_loader):.4f}, Data Loss: {lossData.item():.4f}, Phys Loss: {lossPhys.item():.4f}")
+            print(f"Epoch {epoch:4d} | Train Loss: {avg_train_loss:.4e} | Test MSE: {test_mse:.4e} | "
+                f"Data Loss (last batch): {lossData.item():.4e} | Phys Loss (last batch): {lossPhys.item():.4e}")
 
 
     encoder.eval(); decoder.eval(); ode.eval()
+
+    train_losses.append(loss.item())  # or a running average over batches
+
     with torch.no_grad():
-        z0_test = encoder(Xtest_t[:, 0, :])             # (ntest, 2)
-        z_hat_test = ode(z0_test, t_test_t)            # (nt_test, ntest, 2)
-        z_hat_test = z_hat_test.permute(1, 0, 2)       # (ntest, nt_test, 2)
-
-        Xhat_flat = decoder(z_hat_test.reshape(-1, 2)) # (ntest*nt_test, 128)
-        Xhat_norm = Xhat_flat.reshape(Xtest_t.shape)   # (ntest, nt_test, 128)
-
+        z0_test = encoder(Xtest_t[:, 0, :])
+        z_hat_test = ode(z0_test, t_test_t).permute(1, 0, 2)
+        Xhat_flat = decoder(z_hat_test.reshape(-1, 2))
+        Xhat_norm = Xhat_flat.reshape(Xtest_t.shape)
+        test_mse  = loss_fn(Xhat_norm, Xtest_t).item()
+        test_losses.append(test_mse)
+        print("Test MSE:", test_mse)
     Xhat = Xhat_norm.cpu().numpy() * sigma + mu        # un-normalize
     # once you have a prediction for Xhat(t) (ntest x nt_test x nx)
     # this will use this specific projection to Z, to create a plot
@@ -258,7 +319,8 @@ if __name__ == "__main__":
     for i in range(0, ntest):
         plt.plot(Zhat[i, 0, 0], Zhat[i, 0, 1], "ko")
         plt.plot(Zhat[i, :, 0], Zhat[i, :, 1], "k")
-        plt.xlim([-1.5, 1.5])
+        plt.xlim([-2, 2])
         plt.ylim([-1, 1])
+    plot_train_test_mse(train_losses, test_losses, savepath="mse_vs_epoch.png")
 
     plt.show()
