@@ -12,7 +12,7 @@ class NeuODE(nn.Module):
     def __init__(self, width, hlayers):
         super(NeuODE, self).__init__()
 
-        self.activation = nn.SiLU()
+        self.activation = nn.Tanh()
 
         layers = []
         layers.append(nn.Linear(4, width))
@@ -28,7 +28,12 @@ class NeuODE(nn.Module):
         return self.network(y)
 
     def forward(self, y0, tsteps):
-        return odeint(self.odefunc, y0, tsteps)
+        return odeint(
+            self.odefunc, y0, tsteps,
+            method="rk4",      # fixed step = much faster
+            options={"step_size": 1.0}  # one step per month
+        )
+
 
 def data():
    
@@ -142,7 +147,7 @@ def plot_forecast(full_dates, y_obs_real, y_pred_real, split_idx=20):
 if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    dtype = torch.float32  # try float64 only if needed
+    dtype = torch.float64
     print("device:", device)
 
     # Get the data
@@ -159,7 +164,7 @@ if __name__ == "__main__":
 
     # Set up the stages of training
     stages = [4, 8, 12, 16, 20]
-    epochs_per_stage = {4: 300, 8: 300, 12: 400, 16: 400, 20: 500}
+    epochs_per_stage = {4: 150, 8: 150, 12: 200, 16: 200, 20: 250}
 
     all_losses = []
 
@@ -185,3 +190,10 @@ if __name__ == "__main__":
 
     plot_forecast(full_dates, y_obs_real, y_pred_real, split_idx=20)
 
+    plt.plot(range(len(all_losses)), all_losses)
+    plt.title("Training Loss Across All Stages")
+    plt.xlabel("Epoch")
+    plt.ylabel("MSE Loss")
+    plt.yscale("log")
+    plt.grid(True, alpha=0.3)   
+    plt.show()
