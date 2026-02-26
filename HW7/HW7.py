@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.optim import Adam
+from torch.optim import Adam, AdamW
 import matplotlib.pyplot as plt
 
 class Encode(nn.Module):
@@ -25,11 +25,12 @@ class Network(nn.Module):
     def __init__(self, K0):
         super(Network, self).__init__()
 
-        self.encoder = nn.Sequential(
+        self.K = nn.Sequential(
             nn.Linear(60, 60, bias=False), 
         )
 
-        # self.k = nn.Parameter(K0, requires_grad=True)
+    def forward(self, x):
+        return self.K(x)
 
 class Decode(nn.Module):
     def __init__(self):
@@ -66,7 +67,12 @@ def data():
     y_t_flat = y_t.reshape(-1, 7) # (N_traj*(N_t-1), 7)
     y_t1_flat = y_t1.reshape(-1, 7) # (N_traj*(N_t-1), 7)
 
-    return tvec, Ytrain, Ytest, y_t_flat, y_t1_flat
+    first_traj = Ytrain[:3, :, :]
+    second_traj = Ytrain[3:6, :, :]
+    third_traj = Ytrain[6:9, :, :]
+
+
+    return tvec, Ytrain, Ytest, y_t_flat, y_t1_flat, first_traj, second_traj, third_traj
 
 def Loss_recon(loss_fn, encoder, decoder, y_batch):
 
@@ -84,7 +90,7 @@ def Loss_linear(loss_fn,encoder, K, y_t, y_t1):
     L = loss_fn(z_t1, z_t1_hat)
     return L
 
-def Loss_pred(loss_fn, encoder, decoder, network, y_t_flat):
+def Loss_pred(loss_fn, encoder, decoder, network, y_t_flat, y_t1_flat):
     
     z_t = encoder(y_t_flat)
     z_t1_hat = network(z_t)
@@ -93,19 +99,58 @@ def Loss_pred(loss_fn, encoder, decoder, network, y_t_flat):
     L = loss_fn(y_t1_hat, y_t1_flat)
     return L
 
+def train(model, optimizer, loss_fn, encoder, decoder, network, y_t_flat, y_t1_flat, num_epochs):
+    for epoch in range(num_epochs):
+        model.train()
+        optimizer.zero_grad()
 
+        loss_pred = Loss_pred(loss_fn, encoder, decoder, network, y_t_flat, y_t1_flat)
+        loss_linear = Loss_linear(loss_fn, encoder, network, y_t_flat, y_t1_flat)
+        loss_recon = Loss_recon(loss_fn, encoder, decoder, y_t_flat)
+        loss = loss_pred + loss_linear + loss_recon
+
+        loss.backward()
+        optimizer.step()
+
+        if (epoch + 1) % 100 == 0:
+            print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}')
+
+        return 
+
+def test(model, loss_fn, encoder, decoder, network, y_t_flat, y_t1_flat):
+    model.eval()
+    with torch.no_grad():
+        loss_pred = Loss_pred(loss_fn, encoder, decoder, network, y_t_flat, y_t1_flat)
+        loss_linear = Loss_linear(loss_fn, encoder, network, y_t_flat, y_t1_flat)
+        loss_recon = Loss_recon(loss_fn, encoder, decoder, y_t_flat)
+        loss_val = loss_pred + loss_linear + loss_recon
+        print(f'Test Loss: {loss_val.item():.4f}')
+    return [loss_val.item()]
 
 if __name__ == "__main__":
 
-    tvec, Ytrain, Ytest, y_t, y_t1, y_t1_flat = data()
+    tvec, Ytrain, Ytest, y_t_flat, y_t1_flat, first_traj, second_traj, third_traj = data()
 
-    plt.plot(tvec, Ytrain[0, :, 0], label='y1', linestyle='dashed')
-    plt.plot(tvec, Ytrain[0, :, 1], label='y2', linestyle='dashed')
-    plt.plot(tvec, Ytrain[0, :, 2], label='y3', linestyle='dashed')
+    lr = 1e-3
+    encoder = Encode()
+    decoder = Decode()
+    network = Network(encoder)
+    optimizer = AdamW(list(encoder.parameters()) + 
+                      list(decoder.parameters()) + 
+                      list(network.parameters()), 
+                      lr=lr)
+    
+    loss_fn = nn.MSELoss()
+    num_epochs = 1000
+    train(network, optimizer, loss_fn, encoder, decoder, network, y_t_flat, y_t1_flat, num_epochs=num_epochs)
+    loss = test(network, loss_fn, encoder, decoder, network, y_t_flat, y_t1_flat)
+
+
+    plt.plot(tvec, first_traj[0, :, 0], label='y1', linestyle='dashed')
+    plt.plot(tvec, second_traj[0, :, 0], label='y2', linestyle='dashed')
+    plt.plot(tvec, third_traj[0, :, 0], label='y3', linestyle='dashed')
     plt.legend()
     plt.xlabel('time')
     plt.ylabel('state')
     plt.show()
 
-    lr = 1e-3
-    optimizer = Adam(model.parameters(), lr=lr)
