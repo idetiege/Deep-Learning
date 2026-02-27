@@ -100,6 +100,8 @@ def Loss_pred(loss_fn, encoder, decoder, network, y_t_flat, y_t1_flat):
     return L
 
 def train(model, optimizer, loss_fn, encoder, decoder, network, y_t_flat, y_t1_flat, num_epochs):
+    loss = []
+
     for epoch in range(num_epochs):
         model.train()
         optimizer.zero_grad()
@@ -112,10 +114,38 @@ def train(model, optimizer, loss_fn, encoder, decoder, network, y_t_flat, y_t1_f
         loss.backward()
         optimizer.step()
 
+        loss.append(loss)
+
         if (epoch + 1) % 100 == 0:
             print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}')
 
-        return 
+        return loss
+        
+
+def rollout_prediction(encoder, decoder, network, traj, nt=50):
+    """
+    traj : shape (50, 7) for ONE trajectory
+    nt   : number of timesteps to predict
+    Returns predicted states with shape (nt, 7)
+    """
+
+    # Start from the *true* first state
+    y0 = torch.tensor(traj[0], dtype=torch.float).unsqueeze(0)   # shape (1, 7)
+
+    # Encode initial state
+    z = encoder(y0)
+
+    preds = []
+    for t in range(nt):
+        # Decode latent vector back to physical state
+        y_hat = decoder(z)
+        preds.append(y_hat.squeeze(0).detach().numpy())
+
+        # Advance latent state using learned linear map
+        z = network(z)
+
+    return np.array(preds)   # shape (nt, 7)
+
 
 def test(model, loss_fn, encoder, decoder, network, y_t_flat, y_t1_flat):
     model.eval()
@@ -142,15 +172,37 @@ if __name__ == "__main__":
     
     loss_fn = nn.MSELoss()
     num_epochs = 1000
-    train(network, optimizer, loss_fn, encoder, decoder, network, y_t_flat, y_t1_flat, num_epochs=num_epochs)
-    loss = test(network, loss_fn, encoder, decoder, network, y_t_flat, y_t1_flat)
+    train_loss = train(network, optimizer, loss_fn, encoder, decoder, network, y_t_flat, y_t1_flat, num_epochs=num_epochs)
+    test_loss = test(network, loss_fn, encoder, decoder, network, y_t_flat, y_t1_flat)
 
+    pred1 = rollout_prediction(encoder, decoder, network, first_traj[0])
+    pred2 = rollout_prediction(encoder, decoder, network, second_traj[0])
+    pred3 = rollout_prediction(encoder, decoder, network, third_traj[0])
 
-    plt.plot(tvec, first_traj[0, :, 0], label='y1', linestyle='dashed')
-    plt.plot(tvec, second_traj[0, :, 0], label='y2', linestyle='dashed')
-    plt.plot(tvec, third_traj[0, :, 0], label='y3', linestyle='dashed')
+    plt.figure(figsize=(10,6))
+
+    # True
+    plt.plot(tvec, first_traj[0, :, 0], 'k--', label='True Traj 1')
+    plt.plot(tvec, second_traj[0, :, 0], 'k-.', label='True Traj 2')
+    plt.plot(tvec, third_traj[0, :, 0], 'k:', label='True Traj 3')
+
+    # Predicted
+    plt.plot(tvec, pred1[:, 0], label='Pred 1')
+    plt.plot(tvec, pred2[:, 0], label='Pred 2')
+    plt.plot(tvec, pred3[:, 0], label='Pred 3')
+    plt.xlabel("Time")
+    plt.ylabel("State 0")
     plt.legend()
-    plt.xlabel('time')
-    plt.ylabel('state')
+    plt.title("True vs Predicted Trajectories")
+    plt.savefig("trajectories.png")
+    plt.grid(True)
+    plt.show()
+
+    plt.figure()
+    plt.plot(range(num_epochs), train_loss, label='Train Loss')
+    plt.plot(num_epochs-1, test_loss[0], 'ro', label='Test Loss')
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.savefig("testing_loss.png")
     plt.show()
 
