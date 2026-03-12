@@ -65,9 +65,19 @@ def ddeta(f, h):
 ####################################################################
 
 # Define tensors for Jinv, dxdxi, dxdeta, dydxi, dydeta, hfx, hfy, lfx, lfy, lfu, lfv
-def prepare_data():
+def prepare_data(lfdata, hfdata, device):
+    lr_input = torch.from_numpy(lfdata).float().to(device)  # shape (1, 6, 14, 9)
 
-    return
+    lr_input = lr_input.unsqueeze(0)  # add batch dimension, shape (1, 6, 14, 9)
+
+    Jinv = torch.from_numpy(hfdata[0, :, :]).unsqueeze(0).unsqueeze(0).float().to(device)  # shape (77, 49)
+    dxdxi = torch.from_numpy(hfdata[1, :, :]).unsqueeze(0).unsqueeze(0).float().to(device)
+    dxdeta = torch.from_numpy(hfdata[2, :, :]).unsqueeze(0).unsqueeze(0).float().to(device)
+    dydxi = torch.from_numpy(hfdata[3, :, :]).unsqueeze(0).unsqueeze(0).float().to(device)
+    dydeta = torch.from_numpy(hfdata[4, :, :]).unsqueeze(0).unsqueeze(0).float().to(device)
+
+
+    return lr_input, Jinv, dxdxi, dxdeta, dydxi, dydeta
 
 
 ## Model Architecture ##
@@ -122,30 +132,65 @@ def apply_boundary_conditions(pred):
 
 ## Physics Loss ##
 ####################################################################
-def physics_loss(u, v):
-    # physical_derivatives = 
+def get_phys_derivs(f, h, coords):
+    dfdxi = ddxi(f, h)
+    dfdeta = ddeta(f, h)
 
-    # dudx = physical_derivatives[:, 0, :, :]
-    # dvdy = physical_derivatives[:, 1, :, :]
-    # d2udx2 = physical_derivatives[:, 2, :, :]
-    # d2udy2 = physical_derivatives[:, 3, :, :]
-    # dvdx = physical_derivatives[:, 4, :, :]
-    # d2vdx2 = physical_derivatives[:, 5, :, :]
-    # d2vdy2 = physical_derivatives[:, 6, :, :]
-    # dpdx = physical_derivatives[:, 7, :, :]
-    # dpdy = physical_derivatives[:, 8, :, :]
-    # eq1 = dudx + dvdy
+    dfdx = coords['Jinv'] * (coords['dydeta'] * dfdxi - coords['dydxi'] * dfdeta)
+    dfdy = coords['Jinv'] * (-coords['dxdeta'] * dfdxi + coords['dxdxi'] * dfdeta)
+
+    return dfdx, dfdy
+
+
+def physics_loss(pred, h, coords):
+    u, v, p = pred[:, 0:1, :, :], pred[:, 1:2, :, :], pred[:, 2:3, :, :]
+
+    # First derivatives
+    dudx, dudy = get_phys_derivs(u, h, coords)
+    dvdx, dvdy = get_phys_derivs(v, h, coords)
+    dpdx, dpdy = get_phys_derivs(p, h, coords)
+
+
+    d2udx2, _ = get_phys_derivs(dudx, h, coords) # x-derivative of dudx
+    _, d2udy2 = get_phys_derivs(dudy, h, coords) # y-derivative of dudy
+    
+    d2vdx2, _ = get_phys_derivs(dvdx, h, coords) # x-derivative of dvdx
+    _, d2vdy2 = get_phys_derivs(dvdy, h, coords) # y-derivative of dvdy
+
+    # Residuals
+    eq1 = (dudx + dvdy)
     eq2 = u*dudx + v*dudy + dpdx - 0.01*(d2udx2 + d2udy2)
     eq3 = u*dvdx + v*dvdy + dpdy - 0.01*(d2vdx2 + d2vdy2)
 
-    Loss = 
-    return 
+
+
+    return 100 * torch.mean(eq1**2) + torch.mean(eq2**2) + torch.mean(eq3**2)
 
 ## Training Loop ##
 ####################################################################
-def train():
+def train(model, optimizer, epochs, lr_input, coords, h):
 
-    return
+    model.train()
+    loss_vals = []
+
+    for i in range(epochs):
+        optimizer.zero_grad()
+
+        out = model(lr_input)
+        out = apply_boundary_conditions(out)
+
+        loss = physics_loss(out, h, coords)
+
+        loss.backward()
+        optimizer.step()
+        scheduler.step()
+
+        loss_vals.append(loss.item())
+
+        if i % 100 == 0:
+            print(f"Iteration {i}, Loss: {loss.item()}")
+
+    return loss_vals, out
 
 ## Main ##
 ####################################################################
@@ -154,14 +199,38 @@ if __name__ == "__main__":
     print("device:", device)
 
     # Prepare the data
-    prepare_data()
+    lr_input, Jinv, dxdxi, dxdeta, dydxi, dydeta = prepare_data(lfdata, hfdata, device)
+    coords = {'Jinv': Jinv, 'dxdxi': dxdxi, 'dxdeta': dxdeta, 'dydxi': dydxi, 'dydeta': dydeta}
+    h = .01
+
 
     # Initialize the model, loss function, and optimizer
     model = SRCNN().to(device)
-    loss_fn = nn.MSELoss()
     optimizer = Adam(model.parameters(), lr=1e-3)
 
-    # Train the model
-    train()
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1000, gamma=0.5)
 
-    # Plot the results
+    # Inside your train loop, after optimizer.step():
+    scheduler.step()
+    epochs = 5000
+    
+    # Train and catch the final high-res output
+    loss_history, final_tensor = train(model, optimizer, epochs, lr_input, coords, h)
+
+    # Plot using the tensor (the second item in the return)
+    u_final = final_tensor[0, 0, :, :].detach().cpu().numpy()
+    v_final = final_tensor[0, 1, :, :].detach().cpu().numpy()
+
+    plt.plot(range(epochs), loss_history)
+    plt.xlabel("Epoch")
+    plt.ylabel("Physics Loss")
+    plt.title("Training Loss History")
+    plt.show()
+
+    plt.figure(figsize=(8, 6))
+    plt.pcolormesh(hfx, hfy, np.sqrt(u_final**2 + v_final**2), cmap=cm.coolwarm, vmin=0.0, vmax=1.0)
+    plt.colorbar()
+    plt.title("Predicted Velocity Magnitude")
+    plt.xlabel("x")
+    plt.ylabel("y")
+    plt.show()
