@@ -5,6 +5,9 @@ import torch
 import torch.nn as nn
 from torch.optim import Adam, AdamW
 
+
+## Load Data ##
+######################################################################
 # load low resolution data, which serves as input to our model
 lfdata = np.load("sr_lfdata.npy")
 lfx = lfdata[0, :, :]  # size 14 x 9  (height x width)
@@ -58,7 +61,7 @@ def ddeta(f, h):
 
     return torch.cat((dfdy_bot, dfdy_central, dfdy_top), dim=2)
 
-## Data Prep
+## Data Prep ##
 ####################################################################
 
 # Define tensors for Jinv, dxdxi, dxdeta, dydxi, dydeta, hfx, hfy, lfx, lfy, lfu, lfv
@@ -67,7 +70,7 @@ def prepare_data():
     return
 
 
-## Model Architecture
+## Model Architecture ##
 ####################################################################
 class SRCNN(nn.Module):
     def __init__(self):
@@ -87,26 +90,64 @@ class SRCNN(nn.Module):
         x = self.upsample(x)
         return self.net(x)
 
-## Boundary Conditions
+## Boundary Conditions ##
 ####################################################################
 # Overwrite the network's predictions at the edges to satisfy the physics of the problem.
-def apply_boundary_conditions():
+def apply_boundary_conditions(pred):
+    # Pred shape: (1, 3, 77, 49) (nbatch x nchannels x height x width)
+    # Channels are (u, v, p)
+    u = pred[:, 0, :, :]
+    v = pred[:, 1, :, :]
+    p = pred[:, 2, :, :]
 
-    return
+    # Bottom (inflow) boundary condition: u = 0, v = 1, dp/dn = 0
+    u[:, 0, :] = 0
+    v[:, 0, :] = 1
+    p[:, 0, :] = p[:, 1, :]
 
-## Physics Loss
+    # Top (outflow) boundary condition: du/deta = 0, dv/deta = 0, p = 0
+    p[:, -1, :] = 0
+    u[:, -1, :] = u[:, -2, :]
+    v[:, -1, :] = v[:, -2, :]
+
+    # Left and right (wall) boundary conditions: u = 0, v = 0, dp/dxi = 0
+    u[:, :, 0] = 0
+    u[:, : , -1] = 0
+    v[:, :, 0] = 0
+    v[:, :, -1] = 0
+    p[:, :, 0] = p[:, :, 1]
+    p[:, :, -1] = p[:, :, -2]
+
+    return torch.stack((u, v, p), dim=1)  # shape (1, 3, 77, 49)
+
+## Physics Loss ##
 ####################################################################
-def physics_loss():
+def physics_loss(u, v):
+    # physical_derivatives = 
 
-    return
+    # dudx = physical_derivatives[:, 0, :, :]
+    # dvdy = physical_derivatives[:, 1, :, :]
+    # d2udx2 = physical_derivatives[:, 2, :, :]
+    # d2udy2 = physical_derivatives[:, 3, :, :]
+    # dvdx = physical_derivatives[:, 4, :, :]
+    # d2vdx2 = physical_derivatives[:, 5, :, :]
+    # d2vdy2 = physical_derivatives[:, 6, :, :]
+    # dpdx = physical_derivatives[:, 7, :, :]
+    # dpdy = physical_derivatives[:, 8, :, :]
+    # eq1 = dudx + dvdy
+    eq2 = u*dudx + v*dudy + dpdx - 0.01*(d2udx2 + d2udy2)
+    eq3 = u*dvdx + v*dvdy + dpdy - 0.01*(d2vdx2 + d2vdy2)
 
-## Training Loop
+    Loss = 
+    return 
+
+## Training Loop ##
 ####################################################################
 def train():
 
     return
 
-## Main
+## Main ##
 ####################################################################
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
