@@ -36,7 +36,10 @@ h = 0.01  # grid spacing in high fidelity (needed for derivatives)
 # or https://web.media.mit.edu/~crtaylor/calculator.html
 
 # f should be a tensor of size: nbatch x nchannels x height (y or eta) x width (x or xi)
-# This is written in a general way if one had more data, but for this case there is only 1 data sample, and there are only a few channels it might be clearer to you to separate the channels out into separate variables, in which case the below could be simplified (i.e., you remove the first two dimensions from everything so that input is just height x width if you desire).
+# This is written in a general way if one had more data, but for this case there is only 1 data sample,
+# and there are only a few channels it might be clearer to you to separate the channels out into separate variables, 
+# in which case the below could be simplified 
+# (i.e., you remove the first two dimensions from everything so that input is just height x width if you desire).
 def ddxi(f, h):
     # 5-pt stencil
     dfdx_central = (f[:, :, :, 0:-4] - 8*f[:, :, :, 1:-3] + 8*f[:, :, :, 3:-1] - f[:, :, :, 4:]) / (12*h)
@@ -70,22 +73,19 @@ class SRCNN(nn.Module):
     def __init__(self):
         super(SRCNN, self).__init__()
 
-        self.Sequential(
-            nn.Upsample(size=(77, 49), mode='bicubic'),
-            nn.Conv2d(9, 16, kernel_size=5, padding=2),
+        self.upsample = nn.Upsample(size=(77, 49), mode='bicubic', align_corners=True)
+
+        self.net = nn.Sequential(
+            nn.Conv2d(6, 64, kernel_size=5, padding=2),
             nn.ReLU(),
-            nn.Conv2d(16, 32, kernel_size=5, padding=2),
+            nn.Conv2d(64, 32, kernel_size=5, padding=2),
             nn.ReLU(),
-            nn.Conv2d(32, 16, kernel_size=5, padding=2),
-            nn.ReLU(),
-            nn.Conv2d(16, 3, kernel_size=5, padding=2)
+            nn.Conv2d(32, 3, kernel_size=5, padding=2),
         )
 
     def forward(self, x):
-        x = self.relu(self.conv1(x))
-        x = self.relu(self.conv2(x))
-        x = self.conv3(x)
-        return x
+        x = self.upsample(x)
+        return self.net(x)
 
 ## Boundary Conditions
 ####################################################################
