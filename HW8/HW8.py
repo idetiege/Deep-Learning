@@ -212,7 +212,7 @@ if __name__ == "__main__":
 
     # Inside your train loop, after optimizer.step():
     scheduler.step()
-    epochs = 5000
+    epochs = 2000
     
     # Train and catch the final high-res output
     loss_history, final_tensor = train(model, optimizer, epochs, lr_input, coords, h)
