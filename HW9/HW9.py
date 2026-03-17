@@ -3,6 +3,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import matplotlib.pyplot as plt
+import torch_geometric
+from torch_geometric.data import Data, DataLoader
 
 def data_setup():
 
