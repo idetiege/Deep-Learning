@@ -4,6 +4,7 @@ from matplotlib import cm
 import torch
 import torch.nn as nn
 from torch.optim import Adam, AdamW
+import torch.nn.functional as F
 
 
 ## Load Data ##
@@ -102,7 +103,7 @@ class SRCNN(nn.Module):
 
 ## Boundary Conditions ##
 ####################################################################
-# Overwrite the network's predictions at the edges to satisfy the physics of the problem.
+# Overwrite the network's predictions at the edges to satisfy the physics
 def apply_boundary_conditions(pred):
     # Pred shape: (1, 3, 77, 49) (nbatch x nchannels x height x width)
     # Channels are (u, v, p)
@@ -224,13 +225,58 @@ if __name__ == "__main__":
     plt.plot(range(epochs), loss_history)
     plt.xlabel("Epoch")
     plt.ylabel("Physics Loss")
-    plt.title("Training Loss History")
+    plt.yscale("log")
+    plt.savefig("training_loss.png", dpi=300)
     plt.show()
 
-    plt.figure(figsize=(8, 6))
-    plt.pcolormesh(hfx, hfy, np.sqrt(u_final**2 + v_final**2), cmap=cm.coolwarm, vmin=0.0, vmax=1.0)
-    plt.colorbar()
-    plt.title("Predicted Velocity Magnitude")
-    plt.xlabel("x")
-    plt.ylabel("y")
-    plt.show()
+    def plot_comparisons(lfdata, hfx, hfy, final_tensor):
+        # 1. Setup the Magnitudes
+        # A. Initial Coarse Data (14 x 9)
+        lfu, lfv = lfdata[4, :, :], lfdata[5, :, :]
+        vel_initial = np.sqrt(lfu**2 + lfv**2)
+        
+        # B. Bicubic Upsampled (The network's "warm start")
+        # We can perform a quick bicubic upsample here just for the plot
+        lr_vel_tensor = torch.tensor(vel_initial).unsqueeze(0).unsqueeze(0)
+        bicubic_vel = F.interpolate(lr_vel_tensor, size=(77, 49), mode='bicubic', align_corners=True)
+        vel_upsampled = bicubic_vel.squeeze().numpy()
+        
+        # C. Final Learned Field (77 x 49)
+        u_final = final_tensor[0, 0, :, :].detach().cpu().numpy()
+        v_final = final_tensor[0, 1, :, :].detach().cpu().numpy()
+        vel_final = np.sqrt(u_final**2 + v_final**2)
+
+        # 2. Create the Figure
+        fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+        
+        # Plot 1: Initial Coarse MRI Data
+        im0 = axes[0].pcolormesh(lfdata[0,:,:], lfdata[1,:,:], vel_initial, cmap='coolwarm', vmin=0, vmax=1.2)
+        axes[0].set_title("1. Initial Coarse MRI")
+        fig.colorbar(im0, ax=axes[0])
+
+        # Plot 2: Bicubic Upsample (Baseline)
+        im1 = axes[1].pcolormesh(hfx, hfy, vel_upsampled, cmap='coolwarm', vmin=0, vmax=1.2)
+        axes[1].set_title("2. Bicubic Baseline")
+        fig.colorbar(im1, ax=axes[1])
+
+        # Plot 3: Final Learned (Physics-Informed)
+        im2 = axes[2].pcolormesh(hfx, hfy, vel_final, cmap='coolwarm', vmin=0, vmax=1.2)
+        axes[2].set_title("3. Final Learned SR")
+        fig.colorbar(im2, ax=axes[2])
+
+        for ax in axes:
+            ax.set_xlabel("x")
+            ax.set_ylabel("y")
+
+        plt.tight_layout()
+        plt.savefig("velocity_comparison.png", dpi=300)
+        plt.show()
+
+    plot_comparisons(lfdata, hfx, hfy, final_tensor)
+    # plt.figure(figsize=(8, 6))
+    # plt.pcolormesh(hfx, hfy, np.sqrt(u_final**2 + v_final**2), cmap=cm.coolwarm, vmin=0.0, vmax=1.0)
+    # plt.colorbar()
+    # plt.title("Predicted Velocity Magnitude")
+    # plt.xlabel("x")
+    # plt.ylabel("y")
+    # plt.show()

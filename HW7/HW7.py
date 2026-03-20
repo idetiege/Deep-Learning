@@ -391,7 +391,7 @@ if __name__ == "__main__":
             color=colors[i],
             label=f"Model {state_labels[i]}"
         )
-
+  
     plt.xlabel("Time")
     plt.ylabel("State value")
     plt.title("First Test Trajectory: Koopman Model vs Data")
